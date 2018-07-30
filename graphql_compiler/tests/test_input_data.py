@@ -1,4 +1,4 @@
-# Copyright 2017 Kensho Technologies, LLC.
+# Copyright 2017-present Kensho Technologies, LLC.
 """Common GraphQL test inputs and expected outputs."""
 
 from collections import namedtuple
@@ -6,7 +6,7 @@ from collections import namedtuple
 from graphql import GraphQLID, GraphQLInt, GraphQLList, GraphQLString
 
 from ..compiler.compiler_frontend import OutputMetadata
-from ..schema import GraphQLDate, GraphQLDateTime
+from ..schema import GraphQLDate, GraphQLDateTime, GraphQLDecimal
 
 
 CommonTestData = namedtuple(
@@ -29,6 +29,47 @@ def immediate_output():
         'animal_name': OutputMetadata(type=GraphQLString, optional=False),
     }
     expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def immediate_output_custom_scalars():
+    graphql_input = '''{
+        Animal {
+            birthday @output(out_name: "birthday")
+            net_worth @output(out_name: "net_worth")
+        }
+    }'''
+    expected_output_metadata = {
+        'birthday': OutputMetadata(type=GraphQLDate, optional=False),
+        'net_worth': OutputMetadata(type=GraphQLDecimal, optional=False),
+    }
+    expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def immediate_output_with_custom_scalar_filter():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "animal_name")
+            net_worth @filter(op_name: ">=", value: ["$min_worth"])
+        }
+    }'''
+    expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+    }
+    expected_input_metadata = {
+        'min_worth': GraphQLDecimal,
+    }
 
     return CommonTestData(
         graphql_input=graphql_input,
@@ -227,13 +268,17 @@ def filter_on_optional_variable_name_or_alias():
 def filter_in_optional_block():
     graphql_input = '''{
         Animal {
-            out_Animal_FedAt @optional {
+            name @output(out_name: "animal_name")
+            out_Animal_ParentOf @optional {
                 name @filter(op_name: "=", value: ["$name"])
+                     @output(out_name: "parent_name")
                 uuid @output(out_name: "uuid")
             }
         }
     }'''
     expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+        'parent_name': OutputMetadata(type=GraphQLString, optional=True),
         'uuid': OutputMetadata(type=GraphQLID, optional=True),
     }
     expected_input_metadata = {
@@ -495,6 +540,33 @@ def simple_union():
         type_equivalence_hints=None)
 
 
+def filter_then_apply_fragment():
+    graphql_input = '''{
+        Species {
+            name @filter(op_name: "in_collection", value: ["$species"])
+                 @output(out_name: "species_name")
+            out_Species_Eats {
+                ... on Food {
+                    name @output(out_name: "food_name")
+                }
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'species_name': OutputMetadata(type=GraphQLString, optional=False),
+        'food_name': OutputMetadata(type=GraphQLString, optional=False),
+    }
+    expected_input_metadata = {
+        'species': GraphQLList(GraphQLString),
+    }
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
 def filter_on_fragment_in_union():
     graphql_input = '''{
         Species {
@@ -600,6 +672,40 @@ def simple_recurse():
         'relation_name': OutputMetadata(type=GraphQLString, optional=False),
     }
     expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def double_recurse():
+    graphql_input = '''{
+        Animal @filter(op_name: "name_or_alias", value: ["$animal_name_or_alias"]) {
+            name @output(out_name: "animal_name")
+            out_Animal_ImportantEvent @optional {
+                ... on Event {
+                    name @output(out_name: "important_event")
+                }
+            }
+            out_Animal_ParentOf @recurse(depth: 2) {
+                name @output(out_name: "ancestor_name")
+            }
+            in_Animal_ParentOf @recurse(depth: 2) {
+                name @output(out_name: "descendent_name")
+            }
+
+    }'''
+    expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+        'important_event': OutputMetadata(type=GraphQLString, optional=True)
+        'ancestor_name': OutputMetadata(type=GraphQLString, optional=False)
+        'descendent_name': OutputMetadata(type=GraphQLString, optional=False)
+    }
+    expected_input_metadata = {
+        ''animal_name': OutputMetadata(type=GraphQLString, optional=False)'
+    }
 
     return CommonTestData(
         graphql_input=graphql_input,
@@ -773,6 +879,73 @@ def in_collection_op_filter_with_optional_tag():
         type_equivalence_hints=None)
 
 
+def intersects_op_filter_with_variable():
+    graphql_input = '''{
+        Animal {
+            alias @filter(op_name: "intersects", value: ["$wanted"])
+            name @output(out_name: "animal_name")
+        }
+    }'''
+    expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+    }
+    expected_input_metadata = {
+        'wanted': GraphQLList(GraphQLString)
+    }
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def intersects_op_filter_with_tag():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "animal_name")
+            alias @tag(tag_name: "aliases")
+            out_Animal_ParentOf {
+                alias @filter(op_name: "intersects", value: ["%aliases"])
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+    }
+    expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def intersects_op_filter_with_optional_tag():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "animal_name")
+            in_Animal_ParentOf @optional {
+                alias @tag(tag_name: "parent_aliases")
+            }
+            out_Animal_ParentOf {
+                alias @filter(op_name: "intersects", value: ["%parent_aliases"])
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+    }
+    expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
 def contains_op_filter_with_variable():
     graphql_input = '''{
         Animal {
@@ -798,7 +971,7 @@ def contains_op_filter_with_tag():
     graphql_input = '''{
         Animal {
             name @output(out_name: "animal_name") @tag(tag_name: "name")
-            out_Animal_ParentOf {
+            in_Animal_ParentOf {
                 alias @filter(op_name: "contains", value: ["%name"])
             }
         }
@@ -963,30 +1136,6 @@ def has_edge_degree_op_filter_with_fold():
     expected_input_metadata = {
         'child_count': GraphQLInt,
     }
-
-    return CommonTestData(
-        graphql_input=graphql_input,
-        expected_output_metadata=expected_output_metadata,
-        expected_input_metadata=expected_input_metadata,
-        type_equivalence_hints=None)
-
-
-def optional_traversal_edge_case():
-    # Both Animal and out_Animal_ParentOf have an out_Animal_FedAt field,
-    # ensure the correct such field is picked out.
-    graphql_input = '''{
-        Animal {
-            out_Animal_ParentOf @optional {
-                out_Animal_FedAt {
-                    name @output(out_name: "name")
-                }
-            }
-        }
-    }'''
-    expected_output_metadata = {
-        'name': OutputMetadata(type=GraphQLString, optional=True),
-    }
-    expected_input_metadata = {}
 
     return CommonTestData(
         graphql_input=graphql_input,
@@ -1209,24 +1358,28 @@ def multiple_folds_and_traverse():
             name @output(out_name: "animal_name")
             out_Animal_ParentOf @fold {
                 in_Animal_ParentOf {
-                    name @output(out_name: "child_names_list")
-                    uuid @output(out_name: "child_uuids_list")
+                    name @output(out_name: "spouse_and_self_names_list")
+                    uuid @output(out_name: "spouse_and_self_uuids_list")
                 }
             }
             in_Animal_ParentOf @fold {
                 out_Animal_ParentOf {
-                    name @output(out_name: "parent_names_list")
-                    uuid @output(out_name: "parent_uuids_list")
+                    name @output(out_name: "sibling_and_self_names_list")
+                    uuid @output(out_name: "sibling_and_self_uuids_list")
                 }
             }
         }
     }'''
     expected_output_metadata = {
         'animal_name': OutputMetadata(type=GraphQLString, optional=False),
-        'child_names_list': OutputMetadata(type=GraphQLList(GraphQLString), optional=False),
-        'child_uuids_list': OutputMetadata(type=GraphQLList(GraphQLID), optional=False),
-        'parent_names_list': OutputMetadata(type=GraphQLList(GraphQLString), optional=False),
-        'parent_uuids_list': OutputMetadata(type=GraphQLList(GraphQLID), optional=False),
+        'spouse_and_self_names_list': OutputMetadata(
+            type=GraphQLList(GraphQLString), optional=False),
+        'spouse_and_self_uuids_list': OutputMetadata(
+            type=GraphQLList(GraphQLID), optional=False),
+        'sibling_and_self_names_list': OutputMetadata(
+            type=GraphQLList(GraphQLString), optional=False),
+        'sibling_and_self_uuids_list': OutputMetadata(
+            type=GraphQLList(GraphQLID), optional=False),
     }
     expected_input_metadata = {}
 
@@ -1516,6 +1669,540 @@ def coercion_filters_and_multiple_outputs_within_fold_traversal():
         'substring': GraphQLString,
         'latest': GraphQLDate,
     }
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def optional_and_traverse():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "name")
+            in_Animal_ParentOf @optional {
+                name @output(out_name: "child_name")
+                in_Animal_ParentOf {
+                    name @output(out_name: "grandchild_name")
+                }
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'name': OutputMetadata(type=GraphQLString, optional=False),
+        'child_name': OutputMetadata(type=GraphQLString, optional=True),
+        'grandchild_name': OutputMetadata(type=GraphQLString, optional=True),
+    }
+    expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def optional_and_traverse_after_filter():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "name")
+                 @filter(op_name: "has_substring", value: ["$wanted"])
+            in_Animal_ParentOf @optional {
+                name @output(out_name: "child_name")
+                in_Animal_ParentOf {
+                    name @output(out_name: "grandchild_name")
+                }
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'name': OutputMetadata(type=GraphQLString, optional=False),
+        'child_name': OutputMetadata(type=GraphQLString, optional=True),
+        'grandchild_name': OutputMetadata(type=GraphQLString, optional=True),
+    }
+    expected_input_metadata = {
+        'wanted': GraphQLString,
+    }
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def optional_and_deep_traverse():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "animal_name")
+            in_Animal_ParentOf @optional {
+                name @output(out_name: "child_name")
+                out_Animal_ParentOf {
+                    name @output(out_name: "spouse_and_self_name")
+                    out_Animal_OfSpecies {
+                        name @output(out_name: "spouse_species")
+                    }
+                }
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+        'child_name': OutputMetadata(type=GraphQLString, optional=True),
+        'spouse_and_self_name': OutputMetadata(type=GraphQLString, optional=True),
+        'spouse_species': OutputMetadata(type=GraphQLString, optional=True),
+    }
+    expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def traverse_and_optional_and_traverse():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "animal_name")
+            in_Animal_ParentOf {
+                name @output(out_name: "child_name")
+                out_Animal_ParentOf @optional {
+                    name @output(out_name: "spouse_and_self_name")
+                    out_Animal_OfSpecies {
+                        name @output(out_name: "spouse_and_self_species")
+                    }
+                }
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+        'child_name': OutputMetadata(type=GraphQLString, optional=False),
+        'spouse_and_self_name': OutputMetadata(type=GraphQLString, optional=True),
+        'spouse_and_self_species': OutputMetadata(type=GraphQLString, optional=True)
+    }
+    expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def multiple_optional_traversals_with_starting_filter():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "animal_name")
+                 @filter(op_name: "has_substring", value: ["$wanted"])
+            in_Animal_ParentOf @optional {
+                name @output(out_name: "child_name")
+                out_Animal_ParentOf {
+                    name @output(out_name: "spouse_and_self_name")
+                }
+            }
+            out_Animal_ParentOf @optional {
+                name @output(out_name: "parent_name")
+                out_Animal_OfSpecies {
+                    name @output(out_name: "parent_species")
+                }
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+        'child_name': OutputMetadata(type=GraphQLString, optional=True),
+        'spouse_and_self_name': OutputMetadata(type=GraphQLString, optional=True),
+        'parent_name': OutputMetadata(type=GraphQLString, optional=True),
+        'parent_species': OutputMetadata(type=GraphQLString, optional=True),
+    }
+    expected_input_metadata = {
+        'wanted': GraphQLString,
+    }
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def optional_traversal_and_optional_without_traversal():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "animal_name")
+                 @filter(op_name: "has_substring", value: ["$wanted"])
+            in_Animal_ParentOf @optional {
+                name @output(out_name: "child_name")
+            }
+            out_Animal_ParentOf @optional {
+                name @output(out_name: "parent_name")
+                out_Animal_OfSpecies {
+                    name @output(out_name: "parent_species")
+                }
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+        'child_name': OutputMetadata(type=GraphQLString, optional=True),
+        'parent_name': OutputMetadata(type=GraphQLString, optional=True),
+        'parent_species': OutputMetadata(type=GraphQLString, optional=True),
+    }
+    expected_input_metadata = {
+        'wanted': GraphQLString,
+    }
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def coercion_on_interface_within_optional_traversal():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "animal_name")
+            in_Animal_ParentOf @optional {
+                out_Entity_Related {
+                    ... on Animal {
+                        out_Animal_OfSpecies {
+                            name @output(out_name: "related_animal_species")
+                        }
+                    }
+                }
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+        'related_animal_species': OutputMetadata(type=GraphQLString, optional=True),
+    }
+    expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def filter_on_optional_traversal_equality():
+    # The operand in the @filter directive originates from an optional block.
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "animal_name")
+            out_Animal_ParentOf {
+                out_Animal_ParentOf @optional {
+                    out_Animal_FedAt {
+                        name @tag(tag_name: "grandparent_fed_at_event")
+                    }
+                }
+            }
+            out_Animal_FedAt @output_source {
+                name @filter(op_name: "=", value: ["%grandparent_fed_at_event"])
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+    }
+    expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def filter_on_optional_traversal_name_or_alias():
+    # The operand in the @filter directive originates from an optional block.
+    graphql_input = '''{
+        Animal {
+            in_Animal_ParentOf @optional {
+                in_Animal_ParentOf {
+                    name @tag(tag_name: "grandchild_name")
+                }
+            }
+            out_Animal_ParentOf @filter(op_name: "name_or_alias", value: ["%grandchild_name"])
+                                @output_source {
+                name @output(out_name: "parent_name")
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'parent_name': OutputMetadata(type=GraphQLString, optional=False),
+    }
+    expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def complex_optional_traversal_variables():
+    # The operands in the @filter directives originate from an optional block.
+    graphql_input = '''{
+        Animal {
+            name @filter(op_name: "=", value: ["$animal_name"])
+            out_Animal_ParentOf {
+                out_Animal_FedAt @optional {
+                    name @tag(tag_name: "parent_fed_at_event")
+                    event_date @tag(tag_name: "parent_fed_at")
+                               @output(out_name: "parent_fed_at")
+                }
+                in_Animal_ParentOf @optional {
+                    out_Animal_FedAt {
+                        event_date @tag(tag_name: "other_child_fed_at")
+                                   @output(out_name: "other_child_fed_at")
+                    }
+                }
+            }
+            in_Animal_ParentOf {
+                out_Animal_FedAt {
+                    name @filter(op_name: "=", value: ["%parent_fed_at_event"])
+                    event_date @output(out_name: "grandchild_fed_at")
+                               @filter(op_name: "between",
+                                       value: ["%other_child_fed_at", "%parent_fed_at"])
+                }
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'parent_fed_at': OutputMetadata(type=GraphQLDateTime, optional=True),
+        'other_child_fed_at': OutputMetadata(type=GraphQLDateTime, optional=True),
+        'grandchild_fed_at': OutputMetadata(type=GraphQLDateTime, optional=False),
+    }
+    expected_input_metadata = {
+        'animal_name': GraphQLString,
+    }
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def simple_optional_recurse():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "name")
+            in_Animal_ParentOf @optional {
+                name @output(out_name: "child_name")
+                out_Animal_ParentOf @recurse(depth: 3) {
+                    name @output(out_name: "self_and_ancestor_name")
+                }
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'name': OutputMetadata(type=GraphQLString, optional=False),
+        'child_name': OutputMetadata(type=GraphQLString, optional=True),
+        'self_and_ancestor_name': OutputMetadata(type=GraphQLString, optional=True),
+    }
+    expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def multiple_traverse_within_optional():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "name")
+            in_Animal_ParentOf @optional {
+                name @output(out_name: "child_name")
+                in_Animal_ParentOf {
+                    name @output(out_name: "grandchild_name")
+                }
+                out_Animal_FedAt {
+                    name @output(out_name: "child_feeding_time")
+                }
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'name': OutputMetadata(type=GraphQLString, optional=False),
+        'child_name': OutputMetadata(type=GraphQLString, optional=True),
+        'grandchild_name': OutputMetadata(type=GraphQLString, optional=True),
+        'child_feeding_time': OutputMetadata(type=GraphQLString, optional=True),
+    }
+    expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def optional_and_fold():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "animal_name")
+            in_Animal_ParentOf @optional {
+                name @output(out_name: "parent_name")
+            }
+            out_Animal_ParentOf @fold {
+                name @output(out_name: "child_names_list")
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+        'parent_name': OutputMetadata(type=GraphQLString, optional=True),
+        'child_names_list': OutputMetadata(
+            type=GraphQLList(GraphQLString), optional=False),
+    }
+    expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def fold_and_optional():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "animal_name")
+            out_Animal_ParentOf @fold {
+                name @output(out_name: "child_names_list")
+            }
+            in_Animal_ParentOf @optional {
+                name @output(out_name: "parent_name")
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+        'parent_name': OutputMetadata(type=GraphQLString, optional=True),
+        'child_names_list': OutputMetadata(
+            type=GraphQLList(GraphQLString), optional=False),
+    }
+    expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def optional_traversal_and_fold_traversal():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "animal_name")
+            in_Animal_ParentOf @optional {
+                in_Animal_ParentOf {
+                    name @output(out_name: "grandparent_name")
+                }
+            }
+            out_Animal_ParentOf @fold {
+                out_Animal_ParentOf {
+                    name @output(out_name: "grandchild_names_list")
+                }
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+        'grandparent_name': OutputMetadata(type=GraphQLString, optional=True),
+        'grandchild_names_list': OutputMetadata(
+            type=GraphQLList(GraphQLString), optional=False),
+    }
+    expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def fold_traversal_and_optional_traversal():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "animal_name")
+            out_Animal_ParentOf @fold {
+                out_Animal_ParentOf {
+                    name @output(out_name: "grandchild_names_list")
+                }
+            }
+            in_Animal_ParentOf @optional {
+                in_Animal_ParentOf {
+                    name @output(out_name: "grandparent_name")
+                }
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+        'grandparent_name': OutputMetadata(type=GraphQLString, optional=True),
+        'grandchild_names_list': OutputMetadata(
+            type=GraphQLList(GraphQLString), optional=False),
+    }
+    expected_input_metadata = {}
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def between_lowering():
+    graphql_input = '''{
+        Animal {
+            uuid @filter(op_name: "between", value: ["$uuid_lower", "$uuid_upper"])
+            name @output(out_name: "animal_name")
+            birthday @filter(op_name: ">=", value: ["$earliest_modified_date"])
+        }
+    }'''
+    expected_output_metadata = {
+        'animal_name': OutputMetadata(type=GraphQLString, optional=False),
+    }
+    expected_input_metadata = {
+        'uuid_lower': GraphQLID,
+        'uuid_upper': GraphQLID,
+        'earliest_modified_date': GraphQLDate,
+    }
+
+    return CommonTestData(
+        graphql_input=graphql_input,
+        expected_output_metadata=expected_output_metadata,
+        expected_input_metadata=expected_input_metadata,
+        type_equivalence_hints=None)
+
+
+def coercion_and_filter_with_tag():
+    graphql_input = '''{
+        Animal {
+            name @output(out_name: "origin") @tag(tag_name: "related")
+            out_Entity_Related {
+                ... on Animal {
+                    name @filter(op_name: "has_substring", value: ["%related"])
+                         @output(out_name: "related_name")
+                }
+            }
+        }
+    }'''
+    expected_output_metadata = {
+        'origin': OutputMetadata(type=GraphQLString, optional=False),
+        'related_name': OutputMetadata(type=GraphQLString, optional=False),
+    }
+    expected_input_metadata = {}
 
     return CommonTestData(
         graphql_input=graphql_input,
